@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from typing import TypedDict, Annotated, List
 import operator
 
+
 # Define the state structure
 class SchedulingState(TypedDict):
     subjects: Annotated[List[dict], operator.add]
@@ -12,16 +13,19 @@ class SchedulingState(TypedDict):
 
 # Define subject and classroom details
 subjects = [
-    {"name": "VNP", "times_per_week": 1, "has_practical": True, "theoretical_duration": 3, "practical_duration": 2},
-    {"name": "OS", "times_per_week": 2, "has_practical": True, "theoretical_duration": 2, "practical_duration": 3},
-    {"name": "E-Vlada", "times_per_week": 4, "has_practical": False, "theoretical_duration": 2, "practical_duration": 0}
+    {"name": "VNP", "times_per_week_theoretical": 1, "times_per_week_practical": 1, "theoretical_duration": 3,
+     "practical_duration": 2},
+    {"name": "OS", "times_per_week_theoretical": 2, "times_per_week_practical": 1, "theoretical_duration": 2,
+     "practical_duration": 3},
+    {"name": "E-Vlada", "times_per_week_theoretical": 2, "times_per_week_practical": 0, "theoretical_duration": 2,
+     "practical_duration": 0}
 ]
 
 classrooms = [
-    {"name": "138",
+    {"name": "Room A",
      "available_slots": ["Mon 9am", "Mon 10am", "Mon 11am", "Tue 2pm", "Tue 3pm", "Tue 4pm", "Wed 11am", "Wed 12pm",
                          "Wed 1pm", "Thu 3pm", "Thu 4pm", "Thu 5pm", "Fri 10am", "Fri 11am", "Fri 12pm"]},
-    {"name": "200AB",
+    {"name": "Room B",
      "available_slots": ["Mon 10am", "Mon 11am", "Mon 12pm", "Tue 1pm", "Tue 2pm", "Tue 3pm", "Wed 3pm", "Wed 4pm",
                          "Wed 5pm", "Thu 9am", "Thu 10am", "Thu 11am", "Fri 11am", "Fri 12pm", "Fri 1pm"]}
 ]
@@ -38,18 +42,18 @@ def add_classrooms(state):
 
 def schedule_classes(state):
     schedule = []
-    for subject in state["subjects"]:
-        times_per_week = subject["times_per_week"]
-        if subject["has_practical"]:
-            times_per_week *= 2
+    subjects_sorted = sorted(state["subjects"], key=lambda x: max(x["theoretical_duration"], x["practical_duration"]),
+                             reverse=True)
 
-        for _ in range(times_per_week):
-            for classroom in state["classrooms"]:
-                if classroom["available_slots"]:
-                    lesson_type = "Practical" if subject["has_practical"] and _ >= subject[
-                        "times_per_week"] else "Theoretical"
-                    duration = subject["practical_duration"] if lesson_type == "Practical" else subject[
-                        "theoretical_duration"]
+    for subject in subjects_sorted:
+        times_per_week_theoretical = subject["times_per_week_theoretical"]
+        times_per_week_practical = subject["times_per_week_practical"]
+
+        for lesson_type, duration, times in [
+            ("Theoretical", subject["theoretical_duration"], times_per_week_theoretical),
+            ("Practical", subject["practical_duration"], times_per_week_practical)]:
+            for _ in range(times):
+                for classroom in state["classrooms"]:
                     available_slots = [slot for slot in classroom["available_slots"][:duration]]
                     if len(available_slots) == duration:
                         for slot in available_slots:
