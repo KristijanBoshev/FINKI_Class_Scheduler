@@ -11,15 +11,15 @@ class SchedulingState(TypedDict):
     classrooms: Annotated[List[dict], operator.add]
     professors: Annotated[List[dict], operator.add]
     schedule: Annotated[List[dict], operator.add]
-
+    unassigned_subjects: Annotated[List[dict], operator.add]
 
 
 # Dummy data
 # Define subject and classroom details
 subjects = [
-    {"name": "VNP", "times_per_week_theoretical": 4, "times_per_week_practical": 4, "theoretical_duration": 3,
+    {"name": "VNP", "times_per_week_theoretical": 7, "times_per_week_practical": 6, "theoretical_duration": 3,
      "practical_duration": 2, "year_of_listening": 3},
-    {"name": "OS", "times_per_week_theoretical": 4, "times_per_week_practical": 4, "theoretical_duration": 2,
+    {"name": "OS", "times_per_week_theoretical": 6, "times_per_week_practical": 6, "theoretical_duration": 2,
      "practical_duration": 2, "year_of_listening": 2},
     {"name": "E-Vlada", "times_per_week_theoretical": 1, "times_per_week_practical": 0, "theoretical_duration": 3,
      "practical_duration": 0, "year_of_listening": 2},
@@ -27,7 +27,7 @@ subjects = [
      "practical_duration": 2, "year_of_listening": 1},
     {"name": "DS", "times_per_week_theoretical": 5, "times_per_week_practical": 5, "theoretical_duration": 3,
      "practical_duration": 3, "year_of_listening": 1},
-    {"name": "Pretpriemnistvo", "times_per_week_theoretical": 2, "times_per_week_practical": 0, "theoretical_duration": 2,
+    {"name": "Pretpriemnistvo", "times_per_week_theoretical": 8, "times_per_week_practical": 8, "theoretical_duration": 2,
      "practical_duration": 0, "year_of_listening": 4},
 
 
@@ -61,7 +61,7 @@ classrooms = [
 
 # Define professors and their availability
 professors = [
-    {"name": "Prof. Igor", "subjects": ["VNP","OS","OOP"], "unavailable_slots": ["Mon 9am", "Tue 9am"]},
+    {"name": "Prof. Igor", "subjects": ["VNP","OS","OOP"], "unavailable_slots": ["Mon", "Tue 9am"]},
     {"name": "Prof. Riste", "subjects": ["OS", "E-Vlada","OOP"], "unavailable_slots": ["Tue 7pm","Wed 10am", "Thu 11am", "Fri 12pm"]},
     {"name": "Prof. Andrea", "subjects": ["VNP", "OS"], "unavailable_slots": ["Mon 10am", "Tue 2pm", "Wed 11am"]},
     {"name": "Prof. Mile", "subjects": ["VNP","OOP"], "unavailable_slots": ["Thu 1pm", "Fri 3pm"]},
@@ -85,6 +85,7 @@ def add_professors(state):
 # Scheduling algorithm
 def schedule_classes(state):
     schedule = []
+    unassigned_subjects = []
     subjects_sorted = sorted(state["subjects"], key=lambda x: max(x["theoretical_duration"], x["practical_duration"]),
                              reverse=True)
 
@@ -103,8 +104,14 @@ def schedule_classes(state):
 
     for professor in state["professors"]:
         for unavailable_slot in professor["unavailable_slots"]:
-            day, hour = unavailable_slot.split()
-            professor_hour_schedule[professor["name"]][(day, hour)] = True
+            parts = unavailable_slot.split()
+            day = parts[0]
+            if len(parts) > 1:
+                hour = parts[1]
+                professor_hour_schedule[professor["name"]][(day, hour)] = True
+            else:
+                for hour in ["8am", "9am", "10am", "11am", "12pm", "1pm", "2pm", "3pm", "4pm", "5pm", "6pm", "7pm"]:
+                    professor_hour_schedule[professor["name"]][(day, hour)] = True
 
     subject_professor_assignment = {subject["name"]: {"Theoretical": [], "Practical": []} for subject in subjects_sorted}
 
@@ -151,6 +158,63 @@ def schedule_classes(state):
                 break
         return assigned
 
+    def assign_remaining_slots(lesson_type, duration, times):
+        assigned_count = len(subject_professor_assignment[subject["name"]][lesson_type])
+        while assigned_count < times:
+            slot_assigned = False
+
+            eligible_professors = [prof for prof in state["professors"] if subject["name"] in prof["subjects"]]
+
+            random.shuffle(eligible_professors)
+            for professor in eligible_professors:
+                if slot_assigned:
+                    break
+                for classroom in state["classrooms"]:
+                    for start_index in range(0, len(classroom["available_slots"])):
+                        available_slot_subset = classroom["available_slots"][start_index:start_index + duration]
+                        if len(available_slot_subset) < duration:
+                            continue
+
+                        conflict = False
+                        for time_slot in available_slot_subset:
+                            day, hour = time_slot.split()
+                            if (hour_year_schedule[(day, hour)][subject["year_of_listening"]] or
+                                    classroom_hour_schedule[classroom["name"]][(day, hour)] or
+                                    professor_hour_schedule[professor["name"]][(day, hour)]):
+                                conflict = True
+                                break
+
+                        if conflict:
+                            continue
+
+                        if len(available_slot_subset) == duration:
+                            slot_assigned = True
+                            assigned_count += 1
+                            for slot in available_slot_subset:
+                                day, hour = slot.split()
+                                hour_year_schedule[(day, hour)][subject["year_of_listening"]] = True
+                                classroom_hour_schedule[classroom["name"]][(day, hour)] = True
+                                professor_hour_schedule[professor["name"]][(day, hour)] = True
+                            schedule.append({
+                                "subject": subject["name"],
+                                "lesson_type": lesson_type,
+                                "classroom": classroom["name"],
+                                "professor": professor["name"],
+                                "time_slots": available_slot_subset
+                            })
+                            subject_professor_assignment[subject["name"]][lesson_type].append(professor["name"])
+                            break
+
+                    if slot_assigned:
+                        break
+                if slot_assigned:
+                    break
+
+            if not slot_assigned:
+                break  # Exit if no more slots can be assigned to avoid infinite loop
+
+        return assigned_count
+
     for subject in subjects_sorted:
         times_per_week_theoretical = subject["times_per_week_theoretical"]
         times_per_week_practical = subject["times_per_week_practical"]
@@ -165,67 +229,32 @@ def schedule_classes(state):
             if len(subject_professor_assignment[subject["name"]]["Practical"]) < times_per_week_practical:
                 assign_initial_classes("Practical", subject, [professor], duration_practical)
 
-        def assign_remaining_slots(lesson_type, duration, times):
-            assigned_count = len(subject_professor_assignment[subject["name"]][lesson_type])
-            while assigned_count < times:
-                slot_assigned = False
-
-                eligible_professors = [prof for prof in state["professors"] if subject["name"] in prof["subjects"]]
-
-                random.shuffle(eligible_professors)
-                for professor in eligible_professors:
-                    if slot_assigned:
-                        break
-                    for classroom in state["classrooms"]:
-                        for start_index in range(0, len(classroom["available_slots"])):
-                            available_slot_subset = classroom["available_slots"][start_index:start_index + duration]
-                            if len(available_slot_subset) < duration:
-                                continue
-
-                            conflict = False
-                            for time_slot in available_slot_subset:
-                                day, hour = time_slot.split()
-                                if (hour_year_schedule[(day, hour)][subject["year_of_listening"]] or
-                                        classroom_hour_schedule[classroom["name"]][(day, hour)] or
-                                        professor_hour_schedule[professor["name"]][(day, hour)]):
-                                    conflict = True
-                                    break
-
-                            if conflict:
-                                continue
-
-                            if len(available_slot_subset) == duration:
-                                slot_assigned = True
-                                assigned_count += 1
-                                for slot in available_slot_subset:
-                                    day, hour = slot.split()
-                                    hour_year_schedule[(day, hour)][subject["year_of_listening"]] = True
-                                    classroom_hour_schedule[classroom["name"]][(day, hour)] = True
-                                    professor_hour_schedule[professor["name"]][(day, hour)] = True
-                                schedule.append({
-                                    "subject": subject["name"],
-                                    "lesson_type": lesson_type,
-                                    "classroom": classroom["name"],
-                                    "professor": professor["name"],
-                                    "time_slots": available_slot_subset
-                                })
-                                subject_professor_assignment[subject["name"]][lesson_type].append(professor["name"])
-                                break
-
-                        if slot_assigned:
-                            break
-                    if slot_assigned:
-                        break
-
-                if not slot_assigned:
-                    break  # Exit if no more slots can be assigned to avoid infinite loop
-
         # Assign remaining theoretical classes
-        assign_remaining_slots("Theoretical", duration_theoretical, times_per_week_theoretical)
-        # Assign remaining practical classes
-        assign_remaining_slots("Practical", duration_practical, times_per_week_practical)
+        total_assigned_theoretical = assign_remaining_slots("Theoretical", duration_theoretical, times_per_week_theoretical)
+        if total_assigned_theoretical < times_per_week_theoretical:
+            unassigned_subjects.append({
+                "subject": subject["name"],
+                "lesson_type": "Theoretical",
+                "professor": [professor["name"] for professor in professors_for_subject],
+                "required_slots": times_per_week_theoretical,
+                "assigned_slots": total_assigned_theoretical,
+                "unassigned_slots": times_per_week_theoretical - total_assigned_theoretical
+            })
 
-    return {"schedule": schedule}
+        # Assign remaining practical classes
+        total_assigned_practical = assign_remaining_slots("Practical", duration_practical, times_per_week_practical)
+        if total_assigned_practical < times_per_week_practical:
+            unassigned_subjects.append({
+                "subject": subject["name"],
+                "lesson_type": "Practical",
+                "professor": [professor["name"] for professor in professors_for_subject],
+                "required_slots": times_per_week_practical,
+                "assigned_slots": total_assigned_practical,
+                "unassigned_slots": times_per_week_practical - total_assigned_practical
+            })
+
+    return {"schedule": schedule, "unassigned_subjects": unassigned_subjects}
+
 
 
 # Create the graph
