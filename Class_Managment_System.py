@@ -28,7 +28,7 @@ subjects = [
      "practical_duration": 3, "year_of_listening": 1},
     {"name": "Pretpriemnistvo", "times_per_week_theoretical": 8, "times_per_week_practical": 8,
      "theoretical_duration": 2,
-     "practical_duration": 0, "year_of_listening": 4},
+     "practical_duration": 1, "year_of_listening": 4},
 
 ]
 
@@ -84,6 +84,8 @@ def add_professors(state):
 # Scheduling algorithm
 
 def schedule_classes(state):
+    random.seed(42)
+
     schedule = []
 
     subjects_sorted = sorted(state["subjects"], key=lambda x: max(x["theoretical_duration"], x["practical_duration"]),
@@ -160,11 +162,13 @@ def schedule_classes(state):
 
             eligible_professors = [prof for prof in state["professors"] if subject["name"] in prof["subjects"]]
 
-            random.shuffle(eligible_professors)
+            eligible_professors.sort(key=lambda x: (len(x["subjects"]), x["name"]))
+
             for professor in eligible_professors:
                 if slot_assigned:
                     break
-                for classroom in state["classrooms"]:
+                sorted_classrooms = sorted(state["classrooms"], key=lambda x: x["name"])
+                for classroom in sorted_classrooms:
                     for start_index in range(0, len(classroom["available_slots"])):
                         available_slot_subset = classroom["available_slots"][start_index:start_index + duration]
                         if len(available_slot_subset) < duration:
