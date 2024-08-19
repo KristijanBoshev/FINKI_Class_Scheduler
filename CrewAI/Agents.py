@@ -9,10 +9,10 @@ os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
 llm = ChatOpenAI(model_name="gpt-3.5-turbo")
 
-subject_substitution_agent = Agent(
-    role="Subject Substitution Specialist",
-    goal="Suggest suitable substitute subjects for specific time slots",
-    backstory="You are an expert in curriculum planning and can suggest appropriate subject substitutions.",
+classroom_substitution_agent = Agent(
+    role="Classroom Substitution Specialist",
+    goal="Suggest suitable substitute classroom for specific time slots",
+    backstory="You are an expert in curriculum planning and can suggest appropriate classroom substitutions.",
     allow_delegation=False,
     llm=llm
 )
