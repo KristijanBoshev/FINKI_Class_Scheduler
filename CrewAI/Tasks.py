@@ -1,10 +1,10 @@
 from crewai import Task
 from Agents import *
 
-suggest_subject_substitution = Task(
-    description="Suggest a substitute subject for a given time slot.",
-    agent=subject_substitution_agent,
-    expected_output="A string containing the suggested subject and the reason for suggestion"
+suggest_classroom_substitution = Task(
+    description="Suggest a substitute classroom for a given time slot.",
+    agent=classroom_substitution_agent,
+    expected_output="A string containing the suggested classroom and the reason for suggestion"
 )
 
 suggest_professor_substitution = Task(
