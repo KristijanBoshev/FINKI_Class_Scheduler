@@ -1,13 +1,42 @@
 import Class_Managment_System as cms
 from datetime import timedelta, datetime
-from Tasks import *
-from crewai import Crew
+from langgraph.graph import StateGraph, END
+from typing import TypedDict, Annotated, List
+import operator
+
+
+class SchedulingState(TypedDict):
+    subjects: Annotated[List[dict], operator.add]
+    classrooms: Annotated[List[dict], operator.add]
+    professors: Annotated[List[dict], operator.add]
+    schedule: Annotated[List[dict], operator.add]
+    query: str
+    change_type: str
+    context: str
+    alternatives: List[str]
+    subject: str
+    time: str
+
 
 class SchedulingSystem:
     def __init__(self):
         self.base_schedule = None
         self.current_week_schedule = None
         self.week_start_date = None
+        self.graph = self.create_graph()
+
+    def create_graph(self):
+        graph = StateGraph(SchedulingState)
+
+        graph.add_node("process_query", self.process_query)
+        graph.add_node("find_alternatives", self.find_alternatives)
+
+        graph.add_edge("process_query", "find_alternatives")
+        graph.add_edge("find_alternatives", END)
+
+        graph.set_entry_point("process_query")
+
+        return graph.compile()
 
     def initialize_base_schedule(self):
         final_state = cms.runnable.invoke({})
@@ -18,75 +47,115 @@ class SchedulingSystem:
         self.week_start_date = datetime.now().date() - timedelta(days=datetime.now().weekday())
         self.current_week_schedule = self.base_schedule.copy()
 
-    def update_schedule(self, subject, time, change_type, new_value):
-        for class_item in self.current_week_schedule:
-            if class_item['subject'] == subject and time in class_item['time_slots']:
-                if change_type == 'classroom':
-                    class_item['classroom'] = new_value
-                elif change_type == 'professor':
-                    class_item['professor'] = new_value
-                return True
-        return False
-
-    def get_class_info(self, subject, time):
-        for class_item in self.current_week_schedule:
-            if class_item['subject'] == subject and time in class_item['time_slots']:
-                return class_item
-        return None
-
     def is_end_of_week(self):
         current_date = datetime.now().date()
         return current_date >= self.week_start_date + timedelta(days=7)
 
-    def get_available_professors(self, subject):
-        available_professors = []
-        for professor in cms.professors:
-            if subject in professor["subjects"]:
-                available_professors.append(professor["name"])
-        return available_professors
+    def process_query(self, state: SchedulingState) -> SchedulingState:
+        query = state['query']
+        change_type = state['change_type']
 
-    def get_available_classrooms(self, time):
+        # Simple parsing of the query
+        words = query.lower().split()
+        subject = next((word for word in words if word in [sub['name'].lower() for sub in cms.subjects]), None)
+        time = next((word for word in words if word in ["monday", "tuesday", "wednesday", "thursday", "friday"]), None)
+
+        state['subject'] = subject
+        state['time'] = time
+
+        return state
+
+    def find_alternatives(self, state: SchedulingState) -> SchedulingState:
+        change_type = state['change_type']
+        subject = state['subject']
+        time = state['time']
+        current_professor = self.get_current_professor(subject, time)
+        current_classroom = self.get_current_classroom(subject, time)
+
+        alternatives = []
+        if subject:
+            if change_type == "professor":
+                all_professors = self.get_all_professors_for_subject(subject)
+                alternatives = [prof for prof in all_professors if prof != current_professor]
+            elif change_type == "classroom":
+                all_available_classrooms = self.get_available_classrooms_for_time()
+                alternatives = [classroom for classroom in all_available_classrooms if classroom != current_classroom]
+                if not alternatives:
+                    alternatives = [classroom['name'] for classroom in cms.classrooms if
+                                    classroom['name'] != current_classroom and self.is_classroom_available(
+                                        classroom['name'])]
+
+        state['alternatives'] = alternatives
+        return state
+
+    def get_current_professor(self, subject, time):
+        current_professor = None
+        for class_item in self.current_week_schedule:
+            if class_item['subject'].lower() == subject.lower():
+                current_professor = class_item['professor']
+                break
+        return current_professor
+
+    def get_all_slots_for_professor(self, professor, subject):
+        slots = []
+        for class_item in self.current_week_schedule:
+            if class_item['subject'].lower() == subject.lower() and class_item['professor'] == professor:
+                slots.extend(class_item['time_slots'])
+        return slots
+
+    def get_all_professors_for_subject(self, subject):
+        return [prof["name"] for prof in cms.professors if subject.lower() in [s.lower() for s in prof["subjects"]]]
+
+    def get_current_classroom(self, subject, time):
+        for class_item in self.current_week_schedule:
+            if class_item['subject'].lower() == subject.lower() and time in class_item['time_slots']:
+                return class_item['classroom']
+        return None
+
+    def get_available_classrooms_for_time(self):
         available_classrooms = []
         for classroom in cms.classrooms:
-            if time in classroom["available_slots"]:
-                available_classrooms.append(classroom["name"])
+            if self.is_classroom_available(classroom['name']):
+                available_classrooms.append(classroom['name'])
         return available_classrooms
+
+    def is_classroom_available(self, classroom):
+        for class_item in self.current_week_schedule:
+            if class_item['classroom'] == classroom:
+                return False
+        return True
+
+    def update_schedule(self, subject, time, change_type, new_value):
+        for class_item in self.current_week_schedule:
+            if class_item['subject'].lower() == subject.lower() and (not time or time in class_item['time_slots']):
+                if change_type == 'professor':
+                    class_item['professor'] = new_value
+                elif change_type == 'classroom':
+                    class_item['classroom'] = new_value
+                return True
+        return False
+
+    def run_query(self, query: str, change_type: str) -> dict:
+        initial_state = SchedulingState(
+            subjects=cms.subjects,
+            classrooms=cms.classrooms,
+            professors=cms.professors,
+            schedule=self.current_week_schedule,
+            query=query,
+            change_type=change_type,
+            context="",
+            alternatives=[],
+            subject="",
+            time=""
+        )
+        final_state = self.graph.invoke(initial_state)
+        return final_state
+
 
 # Initialize the scheduling system
 scheduling_system = SchedulingSystem()
 scheduling_system.initialize_base_schedule()
 
-def process_query(query, change_type):
-    context = f"""
-    Current week schedule: {scheduling_system.current_week_schedule}
-    Query: {query}
-    Change Type: {change_type}
-    Based on the current schedule and the specified change type, provide a response in the following format:
-    subject: [subject name]
-    time: [time of the class]
-    current_value: [current professor/classroom name]
-    """
-    response = llm.invoke(context)
-    return response.content
-
-def parse_llm_response(response_content):
-    print("LLM Response:", response_content)
-    lines = response_content.strip().split('\n')
-    parsed_response = {}
-    for line in lines:
-        if ':' in line:
-            key, value = line.split(':', 1)
-            parsed_response[key.strip()] = value.strip()
-        else:
-            print(f"Skipping line as it does not contain a key-value pair: '{line}'")
-    return parsed_response
-
-scheduling_crew = Crew(
-    agents=[classroom_substitution_agent, professor_substitution_agent, schedule_manager_agent],
-    tasks=[suggest_classroom_substitution, suggest_professor_substitution, manage_schedule_changes],
-    llm=llm,
-    verbose=2
-)
 
 def determine_change_type(query):
     query = query.lower()
@@ -96,6 +165,7 @@ def determine_change_type(query):
         return 'professor'
     else:
         return None
+
 
 def run_scheduling_system():
     while True:
@@ -109,68 +179,50 @@ def run_scheduling_system():
 
         change_type = determine_change_type(user_query)
         if change_type is None:
-            print("Unable to determine if you're asking about a classroom or professor change. Please clarify your query.")
+            print(
+                "Unable to determine if you're asking about a classroom or professor change. Please clarify your query.")
             continue
 
-        response_content = process_query(user_query, change_type)
+        result = scheduling_system.run_query(user_query, change_type)
 
-        try:
-            parsed_response = parse_llm_response(response_content)
-            subject = parsed_response['subject']
-            time = parsed_response['time']
-            current_value = parsed_response['current_value']
-        except KeyError as e:
-            print(f"Couldn't parse the query correctly. Missing key: {e}. Please try again.")
-            continue
+        if result['alternatives']:
+            print(f"Possible alternatives for {change_type}:")
+            for i, alt in enumerate(result['alternatives'], 1):
+                print(f"{i}. {alt}")
 
-        # Prepare the context based on the type of change
-        context = f"Subject: {subject}, Time: {time}, Current Value: {current_value}"
+            choice = input("Enter the number of your choice or 'cancel' to abort: ")
+            if choice.lower() == 'cancel':
+                continue
 
-        result = None
-        if change_type == "professor":
-            available_professors = scheduling_system.get_available_professors(subject)
-            context += f", Available Professors: {', '.join(available_professors)}"
+            try:
+                choice_index = int(choice) - 1
+                if 0 <= choice_index < len(result['alternatives']):
+                    new_value = result['alternatives'][choice_index]
 
-            # Activate the relevant specialist by setting up the correct crew_inputs
-            crew_inputs = {
-                "change_type": change_type,
-                "context": context,
-            }
-            result = scheduling_crew.kickoff(crew_inputs)
+                    # Get all slots for the chosen professor
+                    all_slots = scheduling_system.get_all_slots_for_professor(new_value, result['subject'])
+                    print(f"Available slots for {new_value} to teach {result['subject']}:")
+                    for slot in all_slots:
+                        print(f"- {slot}")
 
-        elif change_type == "classroom":
-            available_classrooms = scheduling_system.get_available_classrooms(time)
-            context += f", Available Classrooms: {', '.join(available_classrooms)}"
+                    final_choice = input("Enter the time slot you want to assign or 'cancel' to abort: ")
+                    if final_choice.lower() == 'cancel':
+                        continue
 
-            # Activate the relevant specialist by setting up the correct crew_inputs
-            crew_inputs = {
-                "change_type": change_type,
-                "context": context,
-            }
-            result = scheduling_crew.kickoff(crew_inputs)
-
-        # Update the schedule based on the result
-        try:
-            new_value = extract_new_value(result, change_type)
-            if new_value:
-                scheduling_system.update_schedule(subject, time, change_type, new_value)
-                print(f"Schedule updated. New {change_type} for {subject} on {time}: {new_value}")
-            else:
-                print(f"No suitable alternative {change_type} found. Schedule remains unchanged.")
-        except ValueError as e:
-            print(e)
+                    if scheduling_system.update_schedule(result['subject'], final_choice, change_type, new_value):
+                        print(
+                            f"Schedule updated. New {change_type} for {result['subject']} at {final_choice}: {new_value}")
+                    else:
+                        print("Failed to update the schedule. Please try again.")
+                else:
+                    print("Invalid choice. Please try again.")
+            except ValueError:
+                print("Invalid input. Please enter a number.")
+        else:
+            print(f"No suitable alternatives found for {change_type}. Schedule remains unchanged.")
 
     print("System exiting. The current week's schedule has been updated based on approved changes.")
 
-def extract_new_value(result, change_type):
-    for task in result.tasks_output:
-        if change_type == "professor" and "Suggested professor" in task.raw:
-            return task.raw.split("Suggested professor: ")[-1].split(".")[0].strip()
-        elif change_type == "classroom" and "Suggested classroom" in task.raw:
-            return task.raw.split("Suggested classroom: ")[-1].split(".")[0].strip()
-
-    # If no suitable substitution is found, raise an error or handle accordingly
-    raise ValueError(f"No suitable alternative {change_type} found. Schedule remains unchanged.")
 
 # Run the scheduling system
 if __name__ == "__main__":
