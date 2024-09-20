@@ -182,12 +182,19 @@ class SchedulingSystem:
                 available_classrooms.append(classroom['name'])
         return available_classrooms
 
+    def get_professors_for_subject(subject):
+        return scheduling_system.get_professors_for_subject(subject)
+
+    def get_class_times_for_professor_and_subject(professor, subject):
+        return scheduling_system.get_class_times_for_professor_and_subject(professor, subject)
+
     def update_schedule(self, subject, day, time, change_type, new_value):
         updated = False
         for class_item in self.current_week_schedule:
             if class_item['subject'].lower() == subject.lower():
                 # Check if the time slot matches
-                if any(slot.startswith(f"{day} {time}") for slot in class_item['time_slots']):
+                matching_slots = [slot for slot in class_item['time_slots'] if slot.startswith(f"{day} {time}")]
+                if matching_slots:
                     if change_type == 'professor':
                         class_item['professor'] = new_value
                     elif change_type == 'classroom':
@@ -195,6 +202,13 @@ class SchedulingSystem:
                     updated = True
                     break  # Once updated, break the loop since the correct class was found
         return updated
+
+    def get_schedule_changes(self):
+        changes = []
+        for base, current in zip(self.base_schedule, self.current_week_schedule):
+            if base != current:
+                changes.append(f"Changed {current['subject']}: Professor {base['professor']} -> {current['professor']}, Classroom {base['classroom']} -> {current['classroom']}")
+        return changes
 
     def run_query(self, query: str, change_type: str) -> dict:
         initial_state = SchedulingState(
