@@ -1,0 +1,1 @@
+from .sample_data import subjects_data, classrooms_data, professors_data
