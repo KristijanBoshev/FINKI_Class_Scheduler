@@ -96,3 +96,9 @@ If used in CLI mode, make sure you follow the next format:
 - Please find alternative classroom for < subject > lecture on < day > < time >
 - Example: Please find alternative classroom for VNP lecture on Tue 10am	 
 - And follow the given instructions in Terminal
+
+If used via the link, there will be 3 alternate tabs representing:
+
+ 1. The current schedule
+ 2. Form to make changes 
+ 3. The updated schedule with new info
